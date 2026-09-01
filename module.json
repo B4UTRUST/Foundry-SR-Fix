@@ -1,0 +1,44 @@
+{
+  "id": "sr5-popout-compat",
+  "title": "SR5 / PopOut! Compatibility Fix",
+  "description": "<p>Fixes a bug where the Shadowrun 5e (SR5-FoundryVTT) roll dialog silently opens in the main Foundry window instead of a popped-out character sheet's own window (via the PopOut! module), making dice rolls appear to stop responding once the sheet is moved to a second monitor.</p><p>This module patches SR5's TestDialog application so that PopOut! can reliably identify which actor a roll dialog belongs to, instead of relying on a timing-based guess that frequently fails.</p>",
+  "version": "0.1.0",
+  "authors": [
+    {
+      "name": "b4utrust"
+    }
+  ],
+  "compatibility": {
+    "minimum": "14.363",
+    "verified": "14.367",
+    "maximum": "14"
+  },
+  "relationships": {
+    "systems": [
+      {
+        "id": "shadowrun5e",
+        "type": "system",
+        "compatibility": {
+          "minimum": "0.37.0"
+        }
+      }
+    ],
+    "recommends": [
+      {
+        "id": "popout",
+        "type": "module",
+        "reason": "This module has no effect unless PopOut! is also installed and active."
+      }
+    ]
+  },
+  "scripts": [
+    "scripts/sr5-popout-compat.js"
+  ],
+  "styles": [],
+  "packs": [],
+  "languages": [],
+  "url": "https://github.com/b4utrust/foundry-sr-fix",
+  "manifest": "https://raw.githubusercontent.com/b4utrust/foundry-sr-fix/main/module.json",
+  "bugs": "https://github.com/b4utrust/foundry-sr-fix/issues",
+  "readme": "https://github.com/b4utrust/foundry-sr-fix#readme"
+}
