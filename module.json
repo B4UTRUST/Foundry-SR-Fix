@@ -37,8 +37,8 @@
   "styles": [],
   "packs": [],
   "languages": [],
-  "url": "https://github.com/b4utrust/foundry-sr-fix",
-  "manifest": "https://raw.githubusercontent.com/b4utrust/foundry-sr-fix/main/module.json",
-  "bugs": "https://github.com/b4utrust/foundry-sr-fix/issues",
-  "readme": "https://github.com/b4utrust/foundry-sr-fix#readme"
+  "url": "https://github.com/B4UTRUST/Foundry-SR-Fix",
+  "manifest": "https://raw.githubusercontent.com/B4UTRUST/Foundry-SR-Fix/claude/foundry-vtt-bug-analysis-uuchwv/module.json",
+  "bugs": "https://github.com/B4UTRUST/Foundry-SR-Fix/issues",
+  "readme": "https://github.com/B4UTRUST/Foundry-SR-Fix#readme"
 }

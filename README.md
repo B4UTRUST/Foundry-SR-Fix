@@ -15,8 +15,10 @@ installed manually, by hand, via its manifest URL:
 
 1. In Foundry's **Setup** screen, go to **Add-on Modules**.
 2. Click **Install Module**.
-3. Paste this URL into the **Manifest URL** field at the bottom of the dialog:
-   `https://raw.githubusercontent.com/b4utrust/foundry-sr-fix/main/module.json`
+3. Paste this URL into the **Manifest URL** field at the bottom of the dialog
+   (this points at the testing branch — it will move to a `main`-branch URL
+   once the fix is confirmed working):
+   `https://raw.githubusercontent.com/B4UTRUST/Foundry-SR-Fix/claude/foundry-vtt-bug-analysis-uuchwv/module.json`
 4. Click **Install**.
 5. Launch your Shadowrun 5e world, go to **Game Settings → Manage Modules**,
    and make sure both **PopOut!** and **SR5 / PopOut! Compatibility Fix** are
