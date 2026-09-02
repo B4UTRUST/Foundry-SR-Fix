@@ -1,89 +1,212 @@
 /**
- * SR5 / PopOut! Compatibility Fix
+ * SR5 Detached Window Compatibility Fix
+ *
+ * =============================================================================
+ * FIX 1 (primary): realm-agnostic `instanceof` for detached windows
+ * =============================================================================
  *
  * THE BUG:
- * Clicking a roll button (skill, attribute, etc.) on a Shadowrun 5e actor sheet
- * that has been popped out (via the PopOut! module) into its own window runs
- * SuccessTest.execute(), which does a chunk of async work (populating linked
- * documents, applying effects, calculating values) BEFORE it ever creates and
- * renders the roll options dialog (SR5's `TestDialog` class).
+ * Foundry v14 can render an application in its own browser window ("Detach
+ * Window"). It does this by calling `detachedDocument.adoptNode(app.element)`.
  *
- * PopOut! decides whether a newly-opened dialog belongs to an already-popped-out
- * sheet using three checks, in order:
- *   1. Does the dialog have a `.actor` property, and does that actor have
- *      exactly one open Application (the popped-out sheet)?
- *   2. Same, but via a `.object` property instead of `.actor`.
- *   3. Fallback: was there a click inside ANY popped-out window in the last
- *      1000ms, and does the dialog's class name look like "Dialog"/"Config"/"Roll"?
+ * Adopting a node into another window's document does NOT merely change its
+ * ownerDocument -- the browser re-links the node's JavaScript wrapper to that
+ * window's realm. Every DOM class is per-realm, so after detaching:
  *
- * SR5's TestDialog exposes neither `.actor` nor `.object` (the actor actually
- * lives at `TestDialog.test.actor`), so checks 1 and 2 always fail. That
- * leaves check 3 as the only path -- and because of the async prep work in
- * step above, more than a second can easily pass between "user clicked Roll"
- * and "the dialog registers itself", especially on data-heavy characters.
- * When that 1-second window is missed, PopOut! renders the roll dialog in the
- * MAIN Foundry window instead of the popout. If the user is looking at the
- * popout on a second monitor, the dialog is completely out of view -- it
- * looks like the sheet just stopped responding to rolls.
+ *     elementInDetachedWindow instanceof HTMLElement   // false!
+ *
+ * ...because `HTMLElement` in the system's code refers to the MAIN window's
+ * HTMLElement, while the element is now an instance of the DETACHED window's
+ * HTMLElement. Same name, different constructor, different realm.
+ *
+ * The SR5 system guards nearly every interaction handler with exactly this
+ * check, e.g.:
+ *
+ *     static async #rollSkill(event) {
+ *         event.preventDefault();
+ *         if (!(event.target instanceof HTMLElement)) return;   // <-- silent bail
+ *         ...
+ *     }
+ *
+ * In a detached window that guard is always false, so the handler returns
+ * silently: clicking a skill does nothing at all, with no console output.
+ * At the time of writing SR5 contains 88 such realm-sensitive checks
+ * (71 of them `instanceof HTMLElement`), so effectively every interactive
+ * control is dead in a detached window.
  *
  * THE FIX:
- * Give TestDialog an `.actor` property that points at `this.test.actor`, the
- * same way PopOut! already expects from other systems' dialogs. This makes
- * check #1 above succeed immediately and deterministically, every time,
- * instead of depending on the flaky 1-second timing fallback.
+ * `instanceof` is customizable via `Symbol.hasInstance`. We redefine it on the
+ * main window's DOM constructors so the check first does the normal same-realm
+ * test, and if that fails, re-runs the test against the equivalent constructor
+ * from the object's OWN realm. An element from a detached window then correctly
+ * reports as an HTMLElement, and all 88 checks start working -- without
+ * modifying a single line of the SR5 system.
  *
- * Because we don't control the SR5 system's source from a module, we can't
- * add a real `get actor()` getter to the TestDialog class definition directly.
- * Instead, the first time we see a TestDialog instance register itself with
- * Foundry (something PopOut! itself already relies on to detect new windows),
- * we patch that single missing getter onto TestDialog.prototype at runtime.
- * From that point on, every TestDialog instance -- including the one we just
- * saw -- has a working `.actor` property.
+ * This is deliberately conservative: it can only ever turn a `false` into a
+ * `true`, and only for objects that genuinely are instances of the same-named
+ * constructor in their own window. Non-elements still return false.
+ *
+ * The proper long-term fix belongs in SR5 itself (duck-type the check, or use
+ * the `target` element Foundry already passes as the handler's 2nd argument).
+ * This module is a drop-in stopgap until that lands upstream.
+ *
+ * =============================================================================
+ * FIX 2 (only relevant if using the PopOut! module instead of native detach)
+ * =============================================================================
+ *
+ * PopOut! decides whether a newly opened dialog belongs to a popped-out sheet
+ * by checking `app.actor` / `app.object`, falling back to a 1-second
+ * click-recency guess. SR5's TestDialog exposes neither (the actor lives at
+ * `TestDialog.test.actor`), so PopOut! always falls back to that timing guess,
+ * which loses the race because SuccessTest.execute() does async prep work
+ * before rendering the dialog. The roll dialog then opens in the MAIN window
+ * instead of the popout -- invisible if you're looking at a second monitor.
+ *
+ * We add the missing `actor` getter so PopOut!'s reliable path works. This is
+ * only applied when the PopOut! module is actually active; with Foundry v14's
+ * native detach it is unnecessary, because Foundry moves child windows itself.
  */
-Hooks.once("ready", () => {
-    const MODULE_ID = "sr5-popout-compat";
-    const LOG_PREFIX = "SR5 PopOut Compat |";
 
+const LOG_PREFIX = "SR5 Detach Compat |";
+
+/* -------------------------------------------------------------------------- */
+/*  Fix 1: realm-agnostic instanceof                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * DOM constructors SR5 uses in `instanceof` checks. Anything not present in
+ * this window is skipped.
+ */
+const REALM_SENSITIVE_CONSTRUCTORS = [
+    "EventTarget",
+    "Node",
+    "Element",
+    "HTMLElement",
+    "HTMLAnchorElement",
+    "HTMLButtonElement",
+    "HTMLDivElement",
+    "HTMLImageElement",
+    "HTMLInputElement",
+    "HTMLLIElement",
+    "HTMLSelectElement",
+    "HTMLTextAreaElement",
+    "HTMLFormElement",
+    "SVGElement",
+];
+
+/**
+ * Make `x instanceof <Ctor>` succeed for objects that live in another window's
+ * realm (e.g. a Foundry detached window) but are instances of the same-named
+ * constructor there.
+ *
+ * @param {string} name  Global constructor name, e.g. "HTMLElement".
+ * @returns {boolean}    Whether the constructor was patched.
+ */
+function makeRealmAgnostic(name) {
+    const Ctor = globalThis[name];
+    if (typeof Ctor !== "function") return false;
+
+    // Already patched (e.g. module reloaded) -- don't stack wrappers.
+    if (Object.getOwnPropertyDescriptor(Ctor, Symbol.hasInstance)) return false;
+
+    // The built-in OrdinaryHasInstance. Calling this directly avoids recursing
+    // back into the custom hasInstance we are about to install.
+    const ordinaryHasInstance = Function.prototype[Symbol.hasInstance];
+
+    Object.defineProperty(Ctor, Symbol.hasInstance, {
+        value: function (obj) {
+            // Fast path: normal same-realm check.
+            if (ordinaryHasInstance.call(Ctor, obj)) return true;
+
+            if (obj === null || (typeof obj !== "object" && typeof obj !== "function")) {
+                return false;
+            }
+
+            // Resolve the window that owns this object:
+            //   - a Node has .ownerDocument
+            //   - a Document has .defaultView
+            //   - a Window has .window
+            let view;
+            try {
+                view = obj.ownerDocument?.defaultView ?? obj.defaultView ?? obj.window;
+            } catch {
+                return false;
+            }
+            if (!view || view === globalThis) return false;
+
+            const ForeignCtor = view[name];
+            if (typeof ForeignCtor !== "function") return false;
+
+            // Test against the foreign realm's constructor using the built-in
+            // algorithm, so a custom hasInstance over there can't interfere.
+            try {
+                return ordinaryHasInstance.call(ForeignCtor, obj);
+            } catch {
+                return false;
+            }
+        },
+        configurable: true,
+        writable: false,
+    });
+
+    return true;
+}
+
+Hooks.once("init", () => {
     if (game.system.id !== "shadowrun5e") {
-        console.log(`${LOG_PREFIX} Active game system is "${game.system.id}", not "shadowrun5e" -- nothing to do.`);
+        console.log(`${LOG_PREFIX} System is "${game.system.id}", not "shadowrun5e" -- standing down.`);
+        return;
+    }
+
+    const patched = REALM_SENSITIVE_CONSTRUCTORS.filter(makeRealmAgnostic);
+    console.log(
+        `${LOG_PREFIX} Made ${patched.length} DOM constructors realm-agnostic so SR5's ` +
+        `"instanceof" guards work in detached windows.`,
+        patched
+    );
+});
+
+/* -------------------------------------------------------------------------- */
+/*  Fix 2: PopOut! dialog ownership (only when PopOut! is active)              */
+/* -------------------------------------------------------------------------- */
+
+Hooks.once("ready", () => {
+    if (game.system.id !== "shadowrun5e") return;
+
+    if (!game.modules.get("popout")?.active) {
+        console.log(`${LOG_PREFIX} PopOut! is not active -- skipping its dialog-ownership patch (not needed for native detach).`);
         return;
     }
 
     const instances = foundry?.applications?.instances;
     if (!instances || typeof instances.set !== "function") {
-        console.warn(`${LOG_PREFIX} Could not find foundry.applications.instances -- this Foundry version may be unsupported.`);
+        console.warn(`${LOG_PREFIX} foundry.applications.instances unavailable -- skipping PopOut! patch.`);
         return;
     }
 
     let patched = false;
 
-    // Wrap whatever instances.set currently is (native, or already wrapped by
-    // PopOut! or another module). Order relative to PopOut!'s own wrapper does
-    // not matter: PopOut!'s check of app.actor happens asynchronously later
-    // (after a render-state polling loop), well after this synchronous patch
-    // has already run.
+    // SR5 does not export TestDialog, so we cannot reference the class directly.
+    // Instead we grab it off the first instance that registers itself, then patch
+    // its prototype so every instance (including that one) gains the getter.
+    // Registration happens during render(), so `test` is already assigned.
     const originalSet = instances.set.bind(instances);
     instances.set = function (id, app) {
         if (!patched && app?.constructor?.name === "TestDialog" && "test" in app) {
             try {
                 const proto = app.constructor.prototype;
-                const existing = Object.getOwnPropertyDescriptor(proto, "actor");
-                if (!existing) {
+                if (!Object.getOwnPropertyDescriptor(proto, "actor")) {
                     Object.defineProperty(proto, "actor", {
                         get() {
                             return this.test?.actor;
                         },
                         configurable: true,
                     });
-                    patched = true;
-                    console.log(`${LOG_PREFIX} Patched TestDialog.prototype.actor -- PopOut! can now reliably detect SR5 roll dialogs.`);
+                    console.log(`${LOG_PREFIX} Patched TestDialog.prototype.actor for PopOut! dialog detection.`);
                 } else {
-                    // Something else already defined .actor (a newer SR5 version
-                    // fixed this upstream, or another module got here first).
-                    // Leave it alone either way.
-                    patched = true;
-                    console.log(`${LOG_PREFIX} TestDialog already has an "actor" property -- skipping patch (nothing to fix).`);
+                    console.log(`${LOG_PREFIX} TestDialog already exposes "actor" -- no patch needed.`);
                 }
+                patched = true;
             } catch (err) {
                 console.error(`${LOG_PREFIX} Failed to patch TestDialog.prototype.actor.`, err);
             }
@@ -91,5 +214,5 @@ Hooks.once("ready", () => {
         return originalSet(id, app);
     };
 
-    console.log(`${LOG_PREFIX} Installed, watching for the first SR5 TestDialog to patch.`);
+    console.log(`${LOG_PREFIX} PopOut! detected -- watching for the first SR5 TestDialog.`);
 });

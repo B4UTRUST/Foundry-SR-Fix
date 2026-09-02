@@ -1,48 +1,94 @@
 # Foundry-SR-Fix
 
-A small Foundry VTT module that fixes a bug where the Shadowrun 5e (SR5-FoundryVTT)
-roll dialog silently opens in the wrong window when a character sheet has been
-popped out via the [PopOut!](https://github.com/League-of-Foundry-Developers/fvtt-module-popout)
-module — making dice rolls appear to stop working once the popped-out sheet is
-moved to a second monitor.
+A small Foundry VTT module that makes **Shadowrun 5e (SR5-FoundryVTT)** character
+sheets work correctly in a **detached / popped-out browser window**.
 
-See `scripts/sr5-popout-compat.js` for a full explanation of the root cause and the fix.
+Verified against Foundry **14.367**, SR5 **0.36.3**.
 
-## Installing this module for testing
+## The bugs this fixes
 
-This module is not (yet) listed in Foundry's module browser, so it needs to be
-installed manually, by hand, via its manifest URL:
+### 1. Sheet controls dead in a detached window (the main one)
 
-1. In Foundry's **Setup** screen, go to **Add-on Modules**.
-2. Click **Install Module**.
-3. Paste this URL into the **Manifest URL** field at the bottom of the dialog
-   (this points at the testing branch — it will move to a `main`-branch URL
-   once the fix is confirmed working):
+Foundry v14's native **Detach Window** moves a sheet into its own browser window
+via `adoptNode()`. Adopting a node into another window doesn't just change its
+`ownerDocument` — the browser **re-links it to that window's JavaScript realm**.
+Every DOM class is per-realm, so from the main window's point of view:
+
+```js
+elementInDetachedWindow instanceof HTMLElement   // false
+```
+
+SR5 guards nearly every interaction handler with exactly that check:
+
+```js
+static async #rollSkill(event) {
+    event.preventDefault();
+    if (!(event.target instanceof HTMLElement)) return;   // silent bail
+```
+
+There are **88** such realm-sensitive checks in SR5 (71 of them
+`instanceof HTMLElement`), so in a detached window clicking a skill — and most
+other controls — does nothing at all, with no console error.
+
+This module redefines `Symbol.hasInstance` on the main window's DOM
+constructors so the check falls back to the object's *own* realm. All 88 checks
+start working, with no changes to the SR5 system itself.
+
+It can only ever turn a `false` into a `true`, and only for objects that really
+are instances of the same-named constructor in their own window. Non-elements
+still return `false`.
+
+### 2. Roll dialog opens in the wrong window (PopOut! module only)
+
+The [PopOut!](https://github.com/League-of-Foundry-Developers/fvtt-module-popout)
+module decides whether a new dialog belongs to a popped-out sheet by checking
+`app.actor` / `app.object`, falling back to a 1-second click-recency guess.
+SR5's `TestDialog` exposes neither (the actor lives at `TestDialog.test.actor`),
+so PopOut! always falls back to that timing guess — and loses the race, because
+`SuccessTest.execute()` does async prep work before rendering the dialog. The
+roll dialog then opens in the main window, invisible if you're looking at a
+second monitor.
+
+This module adds the missing `actor` getter. It is **only applied when PopOut!
+is active**; with native detach it isn't needed, since Foundry moves child
+windows itself.
+
+> **Recommended:** use Foundry v14's built-in **Detach Window** control (in the
+> sheet's window header) rather than the PopOut! module. PopOut! is verified
+> only to Foundry 13.350 and does manual cross-document DOM surgery that
+> duplicates — and conflicts with — v14's native window management.
+
+## Installing
+
+1. In Foundry's **Setup** screen, go to **Add-on Modules** → **Install Module**.
+2. Paste this into the **Manifest URL** field (points at the testing branch):
    `https://raw.githubusercontent.com/B4UTRUST/Foundry-SR-Fix/claude/foundry-vtt-bug-analysis-uuchwv/module.json`
-4. Click **Install**.
-5. Launch your Shadowrun 5e world, go to **Game Settings → Manage Modules**,
-   and make sure both **PopOut!** and **SR5 / PopOut! Compatibility Fix** are
-   checked, then save.
+3. Click **Install**.
+4. In your world: **Game Settings → Manage Modules**, enable
+   **SR5 Detached Window Compatibility Fix**, and save.
 
-## Verifying the fix is active
+## Verifying it's active
 
-1. Open the browser console (F12, or Ctrl+Shift+I) in your Foundry tab.
-2. Reload the world.
-3. Look for a line starting with `SR5 PopOut Compat |` — it should say either
-   `Installed, watching for the first SR5 TestDialog to patch.` right after load,
-   and then `Patched TestDialog.prototype.actor ...` the first time any character
-   rolls a skill, attribute, or similar test (whether or not the sheet is popped out).
-4. If you instead see `Could not find foundry.applications.instances` or
-   `Active game system is ... not "shadowrun5e"`, something about your setup
-   doesn't match what this module expects — let me know what it printed.
+Open the console (F12) and reload the world. You should see:
 
-## Testing the actual bug fix
+```
+SR5 Detach Compat | Made N DOM constructors realm-agnostic so SR5's "instanceof" guards work in detached windows.
+```
 
-1. Open a character sheet and click PopOut! to move it into its own window.
-2. Drag that window to a second monitor.
-3. Roll a skill or attribute test from the popped-out sheet.
-4. **Expected (fixed) behavior:** the roll dialog (edge/limit/modifiers popup)
-   appears inside the popped-out window, on the second monitor, right where
-   you clicked.
-5. If it still appears in the main Foundry window instead, note that down —
-   it means something differs from what was analyzed and the fix needs another look.
+If instead you see `System is "..." not "shadowrun5e" -- standing down.`, the
+module is installed in a non-SR5 world and is intentionally doing nothing.
+
+## Testing
+
+1. Open a character sheet, click **Detach Window** in its header, and move the
+   window to your second monitor.
+2. Click a **skill** icon → the roll dialog should appear.
+3. Click an **attribute** → should also still work.
+4. Close the sheet and reopen it → should reopen normally.
+
+## Upstream fix
+
+The real fix belongs in SR5: those `instanceof` checks should be realm-safe —
+either duck-typed (`node?.nodeType === 1`), or simply using the `target` element
+Foundry already passes as the action handler's second argument. This module is a
+stopgap until that lands upstream.

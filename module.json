@@ -1,8 +1,8 @@
 {
   "id": "sr5-popout-compat",
-  "title": "SR5 / PopOut! Compatibility Fix",
-  "description": "<p>Fixes a bug where the Shadowrun 5e (SR5-FoundryVTT) roll dialog silently opens in the main Foundry window instead of a popped-out character sheet's own window (via the PopOut! module), making dice rolls appear to stop responding once the sheet is moved to a second monitor.</p><p>This module patches SR5's TestDialog application so that PopOut! can reliably identify which actor a roll dialog belongs to, instead of relying on a timing-based guess that frequently fails.</p>",
-  "version": "0.1.0",
+  "title": "SR5 Detached Window Compatibility Fix",
+  "description": "<p>Makes Shadowrun 5e (SR5-FoundryVTT) character sheets work correctly in a detached/popped-out browser window.</p><p><b>Fix 1:</b> Foundry v14's native \"Detach Window\" moves the sheet into another browser window, which re-links every element to that window's JavaScript realm. SR5 guards ~88 of its interaction handlers with <code>instanceof HTMLElement</code>, which silently returns false across realms, so skills and most other controls stop responding with no error. This module makes those checks realm-aware.</p><p><b>Fix 2:</b> When the PopOut! module is used instead, SR5's roll dialog opens in the wrong window because PopOut! cannot tell which actor it belongs to. This module supplies the missing link.</p>",
+  "version": "0.2.0",
   "authors": [
     {
       "name": "b4utrust"
