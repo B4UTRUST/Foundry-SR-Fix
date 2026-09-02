@@ -38,8 +38,8 @@
   "packs": [],
   "languages": [],
   "url": "https://github.com/B4UTRUST/Foundry-SR-Fix",
-  "manifest": "https://raw.githubusercontent.com/B4UTRUST/Foundry-SR-Fix/claude/foundry-vtt-bug-analysis-uuchwv/module.json",
-  "download": "https://github.com/B4UTRUST/Foundry-SR-Fix/archive/refs/heads/claude/foundry-vtt-bug-analysis-uuchwv.zip",
+  "manifest": "https://raw.githubusercontent.com/B4UTRUST/Foundry-SR-Fix/main/module.json",
+  "download": "https://github.com/B4UTRUST/Foundry-SR-Fix/archive/refs/heads/main.zip",
   "bugs": "https://github.com/B4UTRUST/Foundry-SR-Fix/issues",
   "readme": "https://github.com/B4UTRUST/Foundry-SR-Fix#readme"
 }

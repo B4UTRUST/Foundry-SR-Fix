@@ -61,8 +61,8 @@ windows itself.
 ## Installing
 
 1. In Foundry's **Setup** screen, go to **Add-on Modules** → **Install Module**.
-2. Paste this into the **Manifest URL** field (points at the testing branch):
-   `https://raw.githubusercontent.com/B4UTRUST/Foundry-SR-Fix/claude/foundry-vtt-bug-analysis-uuchwv/module.json`
+2. Paste this into the **Manifest URL** field:
+   `https://raw.githubusercontent.com/B4UTRUST/Foundry-SR-Fix/main/module.json`
 3. Click **Install**.
 4. In your world: **Game Settings → Manage Modules**, enable
    **SR5 Detached Window Compatibility Fix**, and save.
